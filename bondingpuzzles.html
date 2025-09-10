@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Photo Puzzle - Fun for All!</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.5.1/dist/confetti.browser.min.js"></script>
+  <style>
+    body { font-family: 'Comic Sans MS', sans-serif; background: linear-gradient(to bottom, #ffe259, #ffa751); text-align: center; color: #333; margin: 0; padding: 20px; }
+    h1, h2 { color: #ff6b6b; text-shadow: 1px 1px 2px rgba(0,0,0,0.1); }
+    #upload-section, #puzzle-section { margin: 20px; background: rgba(255,255,255,0.8); border-radius: 15px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    input, select, button { font-size: 18px; padding: 10px; margin: 10px; border-radius: 10px; border: 2px solid #4ecdc4; background: #fff; color: #333; cursor: pointer; }
+    button:hover { background: #4ecdc4; color: #fff; }
+    canvas { border: 4px solid #45b7a0; border-radius: 15px; display: block; margin: 20px auto; box-shadow: 0 4px 15px rgba(0,0,0,0.2); touch-action: none; }
+    #metadataDisplay { font-size: 20px; color: #556270; }
+    #stats { font-size: 24px; color: #ff6b6b; }
+    .emoji { font-size: 30px; }
+    #shareMessage { font-size: 18px; color: #4ecdc4; }
+    #friendsList { display: none; position: absolute; background: #fff; border: 2px solid #4ecdc4; border-radius: 10px; padding: 10px; width: 150px; text-align: left; }
+    .friend-option { padding: 5px; cursor: pointer; }
+    .friend-option:hover { background: #4ecdc4; color: #fff; }
+    .friend-option.selected { background: #4ecdc4; color: #fff; }
+  </style>
+</head>
+<body>
+  <!-- MODULE: UI Structure -->
+  <div id="upload-section">
+    <h1>Photo Puzzle Fun! 🎉</h1>
+    <p>Upload a photo and make it a puzzle! 😊</p>
+    <input type="file" id="imageUpload" accept="image/*">
+    <br>
+    <label>Date: 📅 <input type="date" id="dateInput"></label>
+    <br>
+    <label>Content: 📝 <input type="text" id="contentInput" placeholder="e.g., Fun Day at Park! 🌳"></label>
+    <br>
+    <button onclick="loadImageAndDetect()">Upload! 🚀</button>
+    <p id="shapeInfo"></p>
+    <select id="gridSelect" style="display: none;">
+      <option value="">Pick Difficulty! 🧩</option>
+    </select>
+    <button id="shareButton" style="display: none;" onclick="toggleFriendsList()">Share with ❤️</button>
+    <div id="friendsList">
+      <div class="friend-option" onclick="toggleFriend('Grandma')">Grandma</div>
+      <div class="friend-option" onclick="toggleFriend('Grandpa')">Grandpa</div>
+      <div class="friend-option" onclick="toggleFriend('Daddy')">Daddy</div>
+      <div class="friend-option" onclick="toggleFriend('Mommy')">Mommy</div>
+    </div>
+    <button id="startButton" style="display: none;" onclick="startPuzzle()">Send & Play! ▶️</button>
+  </div>
+  <div id="puzzle-section" style="display: none;">
+    <h2>Puzzle Time! 🧩</h2>
+    <p id="metadataDisplay"></p>
+    <p id="shareMessage"></p>
+    <p id="stats">Moves: <span id="moves">0</span> ⏱️ Time: <span id="time">0s</span></p>
+    <button onclick="toggleHints()">Hints? 💡</button>
+    <button onclick="resetPuzzle()">Reset 🔄</button>
+    <div id="winMessage" style="display: none;">
+      <h2 class="emoji">You Won! 🎊</h2>
+      <button onclick="saveOriginalImage()">Save Original Image 📸</button>
+      <button onclick="shareLink()">Share Puzzle Link 🔗</button>
+      <button onclick="newPuzzle()">New Puzzle ➕</button>
+    </div>
+  </div>
+
+  <script>
+    // MODULE: Global Variables
+    let img; // Uploaded image
+    let gridOptions = []; // Available grid sizes based on image shape
+    let rows, cols; // Selected grid dimensions
+    let tileSize; // Size of each puzzle tile
+    let tiles = []; // Array of puzzle tiles
+    let moves = 0; // Move counter
+    let time = 0; // Timer in seconds
+    let timerInterval; // Timer interval ID
+    let metadata = {}; // Date and content from user input
+    let hintsOn = false; // Hint toggle state
+    let draggedTile = null; // Currently dragged tile
+    let selectedFriends = []; // Selected friends for sharing
+    let imageDataUrl; // Stores original image data URL for saving
+
+    // MODULE: Image Upload and Shape Detection
+    // Handles image upload, detects square/rectangle, and populates grid options
+    function loadImageAndDetect() {
+      const file = document.getElementById('imageUpload').files[0];
+      if (!file) return alert('Pick a photo first! 📸');
+      metadata.date = document.getElementById('dateInput').value;
+      metadata.content = document.getElementById('contentInput').value;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        imageDataUrl = e.target.result; // Save original image data URL
+        img = loadImage(imageDataUrl, () => {
+          const aspect = img.width / img.height;
+          const isSquare = Math.abs(aspect - 1) < 0.1;
+          document.getElementById('shapeInfo').innerText = isSquare ? 'Square photo! 🟪' : 'Rectangle photo! 🟦';
+          gridOptions = isSquare ? ['2x2', '3x3', '4x4'] : ['2x2', '2x3', '3x4'];
+          const select = document.getElementById('gridSelect');
+          select.style.display = 'block';
+          select.innerHTML = '<option value="">Pick Difficulty! 🧩</option>';
+          gridOptions.forEach((opt, i) => {
+            const levels = ['Easy 😊', 'Medium 🤔', 'Hard 💪'];
+            const option = document.createElement('option');
+            option.value = opt;
+            option.text = `${opt} - ${levels[i] || 'Custom'}`;
+            select.add(option);
+          });
+          document.getElementById('shareButton').style.display = 'block';
+          document.getElementById('startButton').style.display = 'block';
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // MODULE: Share Feature
+    // Toggles the visibility of the friends list dropdown
+    function toggleFriendsList() {
+      const friendsList = document.getElementById('friendsList');
+      friendsList.style.display = friendsList.style.display === 'block' ? 'none' : 'block';
+    }
+
+    // Toggles a friend's selection state
+    function toggleFriend(friend) {
+      const index = selectedFriends.indexOf(friend);
+      if (index === -1) {
+        selectedFriends.push(friend);
+        document.querySelector(`.friend-option[onclick="toggleFriend('${friend}')"]`).classList.add('selected');
+      } else {
+        selectedFriends.splice(index, 1);
+        document.querySelector(`.friend-option[onclick="toggleFriend('${friend}')"]`).classList.remove('selected');
+      }
+    }
+
+    // MODULE: Puzzle Setup
+    // Initializes the canvas and starts the puzzle
+    function startPuzzle() {
+      const grid = document.getElementById('gridSelect').value;
+      if (!grid) return alert('Choose a puzzle size! 🧩');
+      [rows, cols] = grid.split('x').map(Number);
+      // Display shared friends or solo message
+      document.getElementById('shareMessage').innerText = selectedFriends.length > 0 ? `Shared with ${selectedFriends.join(', ')}!` : 'Playing solo! 😊';
+      document.getElementById('friendsList').style.display = 'none'; // Hide friends list
+      document.getElementById('upload-section').style.display = 'none';
+      document.getElementById('puzzle-section').style.display = 'block';
+      document.getElementById('metadataDisplay').innerText = `📅 ${metadata.date || 'No date'} | 📝 ${metadata.content || 'No description'}`;
+      setup();
+      timerInterval = setInterval(() => { time++; document.getElementById('time').innerText = time + 's'; }, 1000);
+    }
+
+    // Sets up the canvas with responsive size based on image aspect ratio
+    function setup() {
+      const canvasSize = min(600, windowWidth - 40);
+      createCanvas(canvasSize, canvasSize * (4 / 3)); // Responsive, max width 600px
+      tileSize = { w: width / cols, h: height / rows };
+      initTiles();
+      shuffleTiles();
+    }
+
+    // MODULE: Puzzle Mechanics
+    // Defines a single puzzle tile with position and image data
+    class Tile {
+      constructor(i, j, imgPart) {
+        this.origI = i; // Original grid position
+        this.origJ = j;
+        this.i = i; // Current grid position
+        this.j = j;
+        this.x = i * tileSize.w; // Pixel position for dragging
+        this.y = j * tileSize.h;
+        this.imgPart = imgPart; // Image portion for this tile
+        this.dragging = false; // Is tile being dragged?
+      }
+      show() {
+        image(this.imgPart, this.x, this.y, tileSize.w, tileSize.h);
+        if (this.dragging || (hintsOn && !draggedTile)) {
+          stroke(255, 215, 0);
+          strokeWeight(4);
+          noFill();
+          rect(this.x, this.y, tileSize.w, tileSize.h);
+        }
+      }
+      snapToGrid() {
+        const i = Math.round(this.x / tileSize.w);
+        const j = Math.round(this.y / tileSize.h);
+        this.i = constrain(i, 0, cols - 1);
+        this.j = constrain(j, 0, rows - 1);
+        this.x = this.i * tileSize.w;
+        this.y = this.j * tileSize.h;
+      }
+    }
+
+    // Creates all puzzle tiles from the image
+    function initTiles() {
+      tiles = [];
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          const imgPart = createImage(tileSize.w, tileSize.h);
+          imgPart.copy(img, i * (img.width / cols), j * (img.height / rows), img.width / cols, img.height / rows, 0, 0, tileSize.w, tileSize.h);
+          tiles.push(new Tile(i, j, imgPart));
+        }
+      }
+    }
+
+    // Randomly shuffles tiles to grid positions
+    function shuffleTiles() {
+      const positions = [];
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          positions.push({ i, j });
+        }
+      }
+      for (let i = positions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [positions[i], positions[j]] = [positions[j], positions[i]];
+      }
+      tiles.forEach((tile, idx) => {
+        tile.i = positions[idx].i;
+        tile.j = positions[idx].j;
+        tile.x = tile.i * tileSize.w;
+        tile.y = tile.j * tileSize.h;
+      });
+    }
+
+    // Draws the puzzle and handles hints
+    function draw() {
+      background(255, 255, 255, 50);
+      tiles.forEach(t => t.show());
+      if (hintsOn) highlightMovable();
+    }
+
+    // MODULE: Drag-and-Drop Interaction
+    // Starts dragging a tile on click/touch
+    function mousePressed() {
+      const clickedTile = tiles.find(t => 
+        mouseX >= t.x && mouseX < t.x + tileSize.w &&
+        mouseY >= t.y && mouseY < t.y + tileSize.h
+      );
+      if (clickedTile) {
+        draggedTile = clickedTile;
+        draggedTile.dragging = true;
+      }
+    }
+
+    // Updates tile position while dragging
+    function mouseDragged() {
+      if (draggedTile) {
+        draggedTile.x = mouseX - tileSize.w / 2;
+        draggedTile.y = mouseY - tileSize.h / 2;
+      }
+    }
+
+    // Snaps tile to grid and swaps with existing tile
+    function mouseReleased() {
+      if (draggedTile) {
+        const targetI = Math.round(draggedTile.x / tileSize.w);
+        const targetJ = Math.round(draggedTile.y / tileSize.h);
+        const snappedI = constrain(targetI, 0, cols - 1);
+        const snappedJ = constrain(targetJ, 0, rows - 1);
+        const targetTile = tiles.find(t => t.i === snappedI && t.j === snappedJ);
+        if (targetTile && targetTile !== draggedTile) {
+          // Swap positions
+          const tempI = draggedTile.i;
+          const tempJ = draggedTile.j;
+          draggedTile.i = targetTile.i;
+          draggedTile.j = targetTile.j;
+          draggedTile.x = draggedTile.i * tileSize.w;
+          draggedTile.y = draggedTile.j * tileSize.h;
+          targetTile.i = tempI;
+          targetTile.j = tempJ;
+          targetTile.x = tempI * tileSize.w;
+          targetTile.y = tempJ * tileSize.h;
+          moves++;
+          document.getElementById('moves').innerText = moves;
+        } else {
+          draggedTile.snapToGrid();
+        }
+        draggedTile.dragging = false;
+        draggedTile = null;
+        if (checkWin()) winGame();
+      }
+    }
+
+    // Mobile touch handlers to prevent scrolling
+    function touchStarted() {
+      mousePressed();
+      return false;
+    }
+
+    function touchMoved() {
+      mouseDragged();
+      return false;
+    }
+
+    function touchEnded() {
+      mouseReleased();
+      return false;
+    }
+
+    // MODULE: Hints and Visual Feedback
+    // Highlights grid slots for hints
+    function highlightMovable() {
+      if (!draggedTile) {
+        stroke(255, 215, 0, 100);
+        strokeWeight(2);
+        noFill();
+        for (let j = 0; j < rows; j++) {
+          for (let i = 0; i < cols; i++) {
+            rect(i * tileSize.w, j * tileSize.h, tileSize.w, tileSize.h);
+          }
+        }
+      }
+    }
+
+    // MODULE: Win Detection
+    // Checks if all tiles are in their original positions
+    function checkWin() {
+      return tiles.every(t => t.i === t.origI && t.j === t.origJ);
+    }
+
+    // Displays win message and confetti
+    function winGame() {
+      clearInterval(timerInterval);
+      document.getElementById('winMessage').style.display = 'block';
+      confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+    }
+
+    // Toggles hint display
+    function toggleHints() {
+      hintsOn = !hintsOn;
+      document.querySelector('button[onclick="toggleHints()"]').innerText = hintsOn ? 'Hints Off ❌' : 'Hints? 💡';
+    }
+
+    // MODULE: Puzzle Reset
+    // Resets the puzzle to a new shuffled state
+    function resetPuzzle() {
+      moves = 0; time = 0;
+      document.getElementById('moves').innerText = 0;
+      document.getElementById('time').innerText = '0s';
+      document.getElementById('winMessage').style.display = 'none';
+      initTiles();
+      shuffleTiles();
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => { time++; document.getElementById('time').innerText = time + 's'; }, 1000);
+    }
+
+    // MODULE: Sharing Features
+    // Downloads the original uploaded image
+    function saveOriginalImage() {
+      const link = document.createElement('a');
+      link.download = 'original-photo.png'; // Default filename
+      link.href = imageDataUrl; // Use original image data URL
+      link.click();
+    }
+
+    // Generates a shareable puzzle link
+    function shareLink() {
+      const state = JSON.stringify(tiles.map(t => ({i: t.i, j: t.j})));
+      const encoded = btoa(state);
+      const url = `${window.location.href}#puzzle=${encoded}&rows=${rows}&cols=${cols}&meta=${encodeURIComponent(JSON.stringify(metadata))}`;
+      navigator.clipboard.writeText(url).then(() => alert('Link copied! Share with friends to challenge them! 🔗'));
+    }
+
+    // MODULE: Navigation
+    // Reloads page for a new puzzle
+    function newPuzzle() {
+      location.reload();
+    }
+
+    // MODULE: Shared Puzzle Loading
+    // Checks for shared puzzle in URL
+    window.onload = () => {
+      const hash = window.location.hash;
+      if (hash.includes('#puzzle=')) {
+        const params = new URLSearchParams(hash.slice(1));
+        const encoded = params.get('puzzle');
+        rows = parseInt(params.get('rows'));
+        cols = parseInt(params.get('cols'));
+        metadata = JSON.parse(decodeURIComponent(params.get('meta')));
+        alert('Shared puzzle loaded! But re-upload the same image to play.');
+      }
+    };
+  </script>
+</body>
+</html>
